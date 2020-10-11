@@ -1,0 +1,61 @@
+{
+  "src/lib/components/StreamingProvider.react.js": {
+    "description": "ExampleComponent is an example component.\nIt takes a property, `label`, and\ndisplays it.\nIt renders an input with the property `value`\nwhich is editable by the user.",
+    "displayName": "StreamingProvider",
+    "methods": [
+      {
+        "name": "sendMessage",
+        "docblock": null,
+        "modifiers": [],
+        "params": [
+          {
+            "name": "action",
+            "type": null
+          },
+          {
+            "name": "symbol",
+            "type": null
+          }
+        ],
+        "returns": null
+      }
+    ],
+    "props": {
+      "id": {
+        "type": {
+          "name": "string"
+        },
+        "required": false,
+        "description": "The ID used to identify this component in Dash callbacks."
+      },
+      "label": {
+        "type": {
+          "name": "string"
+        },
+        "required": false,
+        "description": "An api key that will be used when this component is rendered."
+      },
+      "data": {
+        "type": {
+          "name": "string"
+        },
+        "required": false,
+        "description": ""
+      },
+      "value": {
+        "type": {
+          "name": "string"
+        },
+        "required": false,
+        "description": "A json string used as the default input must contain a symbols key\nex \"{\"symbols\": [\"SPY\", \"QQQ\", \"DIA\", \"XIU.TO\"]}\"."
+      },
+      "setProps": {
+        "type": {
+          "name": "func"
+        },
+        "required": false,
+        "description": "Dash-assigned callback that should be called to report property changes\nto Dash, to make them available for callbacks."
+      }
+    }
+  }
+}
