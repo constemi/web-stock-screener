@@ -40,7 +40,13 @@ def set_secure_headers(response):
 
 
 socketio = SocketIO(
-    server, async_mode=None, engineio_logger=True, cors_allowed_origins="*",
+    # Set async mode variable to "threading", "eventlet" or "gevent" to choose
+    # different async modes, or leave it set to None for the app to choose
+    # the best option based on installed packages.
+    server,
+    async_mode=None,
+    engineio_logger=True,
+    cors_allowed_origins="*",
 )
 
 ############################
@@ -61,9 +67,6 @@ external_scripts = [
 ]
 
 app = dash.Dash(
-    # Set async mode variable to "threading", "eventlet" or "gevent" to choose
-    # different async modes, or leave it set to None for the app to choose
-    # the best option based on installed packages.
     __name__,
     meta_tags=[{"name": "viewport", "content": "width=device-width"}],
     server=server,
