@@ -45,6 +45,12 @@ add your finnhub api key to the env
 export FINNHUB_API_KEY="YOUR_API_KEY"
 ```
 
+add your flask secret to the env
+
+```
+export SECRET_KEY="secretkey"
+```
+
 Run the app:
 
 ```
