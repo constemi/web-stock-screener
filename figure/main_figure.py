@@ -1,5 +1,6 @@
-import datetime
+import time
 import pandas as pd
+from datetime import datetime as dt, timedelta
 from api import DataProvider
 from plotly import subplots
 
@@ -23,16 +24,18 @@ from trace import (
 
 
 # Returns graph figure
-def get_fig(ticker, type_trace, studies, period):
+def get_fig(
+    ticker,
+    type_trace,
+    studies,
+    resolution,
+    _from=int((dt.now() - timedelta(days=7)).timestamp()),
+    _to=int(time.time()),
+):
     # Get OHLC data
     print("getting data for {}".format(ticker))
     stock = DataProvider(ticker)
-    df = stock.candles(
-        period,
-        int(
-            (datetime.datetime.now() - datetime.timedelta(days=7)).timestamp()
-        ),
-    )
+    df = stock.candles(resolution, _from, _to)
 
     df.index = pd.to_datetime(df["t"], unit="s")
 
@@ -164,7 +167,7 @@ def get_fig(ticker, type_trace, studies, period):
     # Volume + Subplot layouts
     for i in range(len(selected_subplots_studies) + 1):
         axis_num = i + 2  # account for existing axes
-        # Subplot Layout x-axis
+        # i Subplot Layout x-axis
         fig["layout"][f"xaxis{axis_num}"]["type"] = "date"
         fig["layout"][f"xaxis{axis_num}"]["showgrid"] = False
         fig["layout"][f"xaxis{axis_num}"]["zeroline"] = True
@@ -174,7 +177,7 @@ def get_fig(ticker, type_trace, studies, period):
             {"pattern": "day of week", "bounds": ["sat", "mon"]},
             {"pattern": "hour", "bounds": [20, 13.30]},
         ]  # hide weekends
-        # Subplot Layout y-axis
+        # i Subplot Layout y-axis
         fig["layout"][f"yaxis{axis_num}"]["side"] = "right"
         fig["layout"][f"yaxis{axis_num}"]["showgrid"] = False
         fig["layout"][f"yaxis{axis_num}"]["zeroline"] = False

@@ -4,7 +4,6 @@ import time
 import finnhub
 import pandas as pd
 from datetime import datetime, timedelta
-from data import sample_candles
 from typing import Dict, Union, Any
 
 """ DataFrame
@@ -55,10 +54,7 @@ class DataProvider:
         return self.client.quote(self.name)
 
     def candles(
-        self,
-        resolution: Union[str, int],
-        initial: int,
-        termination: int = int(time.time()),
+        self, resolution: Union[str, int], initial: int, termination: int,
     ) -> pd.DataFrame:
         """
         resolution: 1, 5, 15, 30, 60, 'D', 'W', 'M'

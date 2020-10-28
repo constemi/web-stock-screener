@@ -1,4 +1,18 @@
 {
+  "src/lib/components/ErrorBoundary.js": {
+    "description": "",
+    "displayName": "ErrorBoundary",
+    "methods": [],
+    "props": {
+      "children": {
+        "type": {
+          "name": "node"
+        },
+        "required": false,
+        "description": ""
+      }
+    }
+  },
   "src/lib/components/StreamingProvider.react.js": {
     "description": "ExampleComponent is an example component.\nIt takes a property, `label`, and\ndisplays it.\nIt renders an input with the property `value`\nwhich is editable by the user.",
     "displayName": "StreamingProvider",

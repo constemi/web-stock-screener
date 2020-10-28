@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
 import json
-import datetime
 import pandas as pd
 import dash
 import dash_finnhub as dfp
 import dash_core_components as dcc
 import dash_html_components as html
+from datetime import datetime as dt
 from dash.exceptions import PreventUpdate
 from dash.dependencies import Input, Output, State
 from dotenv import load_dotenv
@@ -15,65 +15,10 @@ from flask_cors import CORS
 from secure import SecureHeaders
 from api import DataProvider
 from figure import get_fig
-from flask_socketio import SocketIO, send
 from data import us_symbols, ca_symbols
-from util import parse_closed_quote, parse_open_quote
+from util import closed_quote, open_quote, pretty_date
 
 load_dotenv()
-
-############################
-# Flask Instantiation
-############################
-
-server = Flask(__name__, static_url_path="")
-server.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
-server.config["DEBUG"] = True
-server.config["CORS_HEADERS"] = "Content-Type"
-
-secure_headers = SecureHeaders()
-
-
-@server.after_request
-def set_secure_headers(response):
-    secure_headers.flask(response)
-    return response
-
-
-socketio = SocketIO(
-    # Set async mode variable to "threading", "eventlet" or "gevent" to choose
-    # different async modes, or leave it set to None for the app to choose
-    # the best option based on installed packages.
-    server,
-    async_mode=None,
-    engineio_logger=True,
-    cors_allowed_origins="*",
-)
-
-############################
-# Dash Instantiation
-############################
-
-external_scripts = [
-    {
-        "src": "https://code.jquery.com/jquery-3.5.1.slim.min.js",
-        "integrity": "sha256-4+XzXVhsDmqanXGHaHvgh1gMQKX40OUvDEBTu8JcmNs=",
-        "crossorigin": "anonymous",
-    },
-    {
-        "src": "https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js",
-        "integrity": "sha256-yr4fRk/GU1ehYJPAs8P4JlTgu0Hdsp4ZKrx8bDEDC3I=",
-        "crossorigin": "anonymous",
-    },
-]
-
-app = dash.Dash(
-    __name__,
-    meta_tags=[{"name": "viewport", "content": "width=device-width"}],
-    server=server,
-    external_scripts=external_scripts,
-)
-
-cors = CORS(server, resources={r"/": {"origins": ""}})
 
 
 ############################
@@ -106,18 +51,6 @@ financials = {
     "epsNormalizedAnnual": "Earnings Per Share (Annu)",
 }
 
-
-############################
-# SocketIO handlers
-############################
-
-
-@socketio.on("connect")
-def handle_connect() -> None:
-    session.permanent = True
-    send("connected")
-
-
 ############################
 # Loading all stock symbols
 ############################
@@ -126,6 +59,45 @@ def handle_connect() -> None:
 df_us_symbols = pd.DataFrame(us_symbols)
 df_ca_symbols = pd.DataFrame(ca_symbols)
 all_symbols = df_us_symbols.append(df_ca_symbols, ignore_index=True)
+
+
+############################
+# Flask Instantiation
+############################
+
+server = Flask(__name__, static_url_path="")
+server.config["SECRET_KEY"] = os.getenv("SECRET_KEY")
+server.config["CORS_HEADERS"] = "Content-Type"
+
+secure_headers = SecureHeaders()
+
+
+@server.before_first_request
+def before_first_request():
+    session["active"] = default_symbols[0]
+    session["SPY"] = DataProvider("SPY").quote()
+    session["active_desc"] = "SPDR S\u0026P 500 ETF TRUST"
+
+    return None
+
+
+@server.after_request
+def set_secure_headers(response):
+    secure_headers.flask(response)
+    return response
+
+
+############################
+# Dash Instantiation
+############################
+
+app = dash.Dash(
+    __name__,
+    meta_tags=[{"name": "viewport", "content": "width=device-width"}],
+    server=server,
+)
+
+cors = CORS(server, resources={r"/": {"origins": ""}})
 
 
 ############################
@@ -140,8 +112,18 @@ def get_row(ticker):
         className="summary",
         children=[
             html.P(ticker, id=ticker + "name", className="three-col"),
-            html.P(0, id=ticker + "price", className="three-col"),
-            html.P("(0.00%)", id=ticker + "change", className="three-col"),
+            html.P(
+                id=ticker + "price",
+                className="three-col",
+                children=[],
+                style={},
+            ),
+            html.P(
+                id=ticker + "change",
+                className="three-col",
+                children=[],
+                style={},
+            ),
             # Contents
             html.Div(
                 id=ticker + "contents",
@@ -165,13 +147,13 @@ def get_row(ticker):
 
 
 # color of price output
-def get_color(a, b):
-    if a == b:
-        return "white"
-    elif a > b:
-        return "#45df7e"
+def dsp_color(diff):
+    if diff == 0:
+        return {"color": "white"}
+    elif diff > 0:
+        return {"color": "#45df7e"}
     else:
-        return "#da5657"
+        return {"color": "#da5657"}
 
 
 # returns chart div
@@ -268,7 +250,7 @@ def chart_div():
                                 children=[
                                     dcc.Dropdown(
                                         className="dropdown-period",
-                                        id="dropdown_period",
+                                        id="resolution",
                                         options=[
                                             {"label": "1 min", "value": 1},
                                             {"label": "5 min", "value": 5},
@@ -351,17 +333,16 @@ app.layout = html.Div(
     className="row",
     children=[
         # Interval component for live clock
-        dcc.Interval(id="interval", interval=1 * 1000, n_intervals=0),
-        # Interval component for left panel updates
-        dcc.Interval(id="i_bis", interval=1 * 30000, n_intervals=0),
+        dcc.Interval(id="interval", interval=1 * 60000, n_intervals=0),
+        # Interval component for left panel update (runs once)
+        dcc.Interval(id="i_bis", max_intervals=1, n_intervals=0),
         # Interval component for graph updates
         dcc.Interval(id="i_tris", interval=1 * 30000, n_intervals=0),
         # Streaming data provider for price updates
         dfp.StreamingProvider(
-            id="streaming-provider",
+            id="streaming_provider",
             data=json.dumps({"symbols": default_symbols}),
             label=os.getenv("FINNHUB_API_KEY"),
-            value="",
         ),
         html.Div(
             className="three columns div-left-panel",
@@ -382,7 +363,7 @@ app.layout = html.Div(
                             """
                         ),
                         dcc.Dropdown(
-                            id="ticker-search",
+                            id="ticker_search",
                             className="card",
                             placeholder="Search ticker...",
                             value="SPY",
@@ -390,16 +371,14 @@ app.layout = html.Div(
                         ),
                     ],
                 ),
-                # Ask Bid Currency Div
+                # Stock list Div
                 html.Div(
-                    className="div-currency-toggles",
+                    className="div-stock-toggles",
                     children=[
                         html.P(
                             id="live_clock",
                             className="three-col",
-                            children=datetime.datetime.now().strftime(
-                                "%H:%M:%S"
-                            ),
+                            children=dt.now().strftime("%H:%M:%S %p"),
                         ),
                         html.P(className="three-col", children="Price"),
                         html.P(className="three-col", children="Change"),
@@ -421,8 +400,19 @@ app.layout = html.Div(
                 html.Div(
                     className="row",
                     children=[
-                        html.H5(id="ticker-header"),
-                        html.H2(id="ticker-price"),
+                        html.H5(id="ticker_header"),
+                        html.Div(
+                            children=[
+                                html.H2(
+                                    id="ticker_name",
+                                    className="float-left",
+                                    style={"paddingRight": 10},
+                                ),
+                                html.H2(
+                                    id="ticker_price", className="float-left"
+                                ),
+                            ],
+                        ),
                     ],
                 ),
                 # Charts Div
@@ -473,18 +463,6 @@ app.layout = html.Div(
 ############################
 
 
-# Generate Buy/Sell and Chart Buttons for Left Panel
-def generate_contents_for_left_panel():
-    def show_contents(n_clicks):
-        if n_clicks is None:
-            return "display-none", "row summary"
-        elif n_clicks % 2 == 0:
-            return "display-none", "row summary"
-        return "row details", "row summary-open"
-
-    return show_contents
-
-
 # Callback to reset left panel click counts
 @app.callback(
     [
@@ -505,7 +483,19 @@ def reset_click_callback(symbol):
     Output("live_clock", "children"), [Input("interval", "n_intervals")]
 )
 def update_time(n):
-    return datetime.datetime.now().strftime("%H:%M:%S")
+    return dt.now().strftime("%H:%M:%S %p")
+
+
+# Generate Buy/Sell and Chart Buttons for Left Panel
+def generate_contents_for_left_panel():
+    def show_contents(n_clicks):
+        if n_clicks is None:
+            return "display-none", "row summary"
+        elif n_clicks % 2 == 0:
+            return "display-none", "row summary"
+        return "row details", "row summary-open"
+
+    return show_contents
 
 
 # Generate live or closed prices for left panel
@@ -515,30 +505,28 @@ def generate_price_for_left_panel(ticker):
         caller = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
 
         # handle streaming provider input
-        if caller == "streaming-provider":
-            if not value or symbol not in default_symbols:
+        if caller == "streaming_provider":
+            stock, price = value.split(",")  # "SPY, 340.24"
+            if stock != symbol:
                 raise PreventUpdate
 
-            stock, price = value.split(",")  # "SPY, 340.24"
-            # price = int(price)
-            # last_close = session["active_prev_close"]
-            # sign, amt, chg = parse_open_quote(stock, last_close)
-            # state = f"{stock}: {price} {sign}{amt} ({sign}{chg}%)"
-            # description = session["active_desc"]
-            # return state, description
-            return 335.17, "+1.32 (+1.5%)"
+            price = float(price)
+            if session.get(stock):
+                last_close = session[stock]["pc"]
+                amt, chg = open_quote(last_close, price)
+                color = dsp_color(amt)
+                return f"{price:.2f}", color, f"{amt:.2f} ({chg:.2f}%)", color
 
-        elif caller == "i_bis":
+        if caller == "i_bis":
             # handle closed price n_i interval callback
             stock = DataProvider(symbol)
-            data = stock.quote()
-            close, last_close, sign, amt, chg = parse_closed_quote(data)
-            session["active_prev_close"] = last_close
-            return close, f"{sign}{amt} ({sign}{chg}%)"
-            # return 335.16, "+1.32 (+1.5%)"
+            quote = stock.quote()
+            session[symbol] = quote
+            close, _, amt, chg = closed_quote(quote)
+            color = dsp_color(amt)
+            return close, color, f"{amt:.2f} ({chg:.2f}%)", color
 
-        else:
-            return 0.00, "0 (0.00%)"
+        return 0.00, dsp_color(0), "0 (0.00%)", dsp_color(0)
 
     return price_for_left_panel
 
@@ -556,10 +544,12 @@ for ticker in default_symbols:
     app.callback(
         [
             Output(ticker + "price", "children"),
+            Output(ticker + "price", "style"),
             Output(ticker + "change", "children"),
+            Output(ticker + "change", "style"),
         ],
         [Input("i_bis", "n_intervals")],
-        [Input("streaming-provider", "value")],
+        [Input("streaming_provider", "value")],
     )(generate_price_for_left_panel(ticker))
 
 
@@ -569,7 +559,7 @@ for ticker in default_symbols:
 
 
 @app.callback(
-    [Output("current_ticker", "className"), Output("ticker-search", "value")],
+    [Output("current_ticker", "className"), Output("ticker_search", "value")],
     [Input(ticker + "Button_chart", "n_clicks") for ticker in default_symbols],
 )
 def chart_button_callback(*args):
@@ -590,8 +580,8 @@ def chart_button_callback(*args):
 
 # Callback for Search Input for Left Panel
 @app.callback(
-    Output("ticker-search", "options"),
-    [Input("ticker-search", "search_value")],
+    Output("ticker_search", "options"),
+    [Input("ticker_search", "search_value")],
 )
 def update_options(symbol):
     if not symbol:
@@ -611,73 +601,84 @@ def update_options(symbol):
     Output("chart", "figure"),
     [
         Input("i_tris", "n_intervals"),
-        Input("dropdown_period", "value"),
+        Input("resolution", "value"),
         Input("chart_type", "value"),
         Input("studies", "value"),
-        Input("ticker-search", "value"),
+        Input("ticker_search", "value"),
     ],
     [State("chart", "figure")],
 )
-def chart_fig_callback(n_i, p, t, s, s_val, old_fig):
-    print("updating chart for current ticker {}".format(s_val))
+def chart_fig_callback(n_i, r, t, s, s_val, old_fig):
+    # plot_range = old_fig["layout"]["xaxis"]["range"])
     if s_val is None:
         return {"layout": {}, "data": {}}
 
     if old_fig is None or old_fig == {"layout": {}, "data": {}}:
-        return get_fig(s_val, t, s, p)
+        return get_fig(s_val, t, s, r)
 
-    fig = get_fig(s_val, t, s, p)
+    fig = get_fig(s_val, t, s, r)
     return fig
 
 
 # Callback to update current ticker and price
 @app.callback(
-    [Output("ticker-price", "children"), Output("ticker-header", "children")],
-    [Input("ticker-search", "value"), Input("streaming-provider", "value")],
+    [
+        Output("ticker_name", "children"),
+        Output("ticker_price", "children"),
+        Output("ticker_price", "style"),
+        Output("ticker_header", "children"),
+    ],
+    [Input("ticker_search", "value"), Input("streaming_provider", "value")],
 )
 def update_current_ticker(symbol, value):
     caller = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
 
-    if caller == "streaming-provider":
-        if not value:
-            raise PreventUpdate
-
+    if caller == "streaming_provider":
         stock, price = value.split(",")  # "SPY, 340.24"
-        if stock not in default_symbols or stock == session["active"]:
-            price = int(price)
-            last_close = session["active_prev_close"]
-            sign, amt, chg = parse_open_quote(stock, last_close)
-            state = f"{stock}: {price} {sign}{amt} ({sign}{chg}%)"
-            description = session["active_desc"]
-            return state, description
-
-        else:
+        if stock != session["active"]:
             raise PreventUpdate
 
-    if caller == "ticker-search":
+        price = float(price)
+        last_close = session["active_prev_close"]
+        amt, chg = open_quote(last_close, price)
+        state = f"{price:.2f} {amt:.2f} ({chg:.2f}%)"
+        color = dsp_color(amt)
+        description = session["active_desc"]
+        return f"{stock}: ", state, color, description
+
+    if caller == "ticker_search":
         if not symbol:
             raise PreventUpdate
 
         session["active"] = symbol
-        session["active_desc"] = all_symbols[all_symbols["symbol"] == symbol][
-            "description"
-        ].to_string(index=False)
 
         stock = DataProvider(symbol)
         quote = stock.quote()
-        close, last_close, sign, amt, chg = parse_closed_quote(quote)
+        close, last_close, amt, chg = closed_quote(quote)
         session["active_prev_close"] = last_close
-        state = f"{symbol}: {close} {sign}{amt} ({sign}{chg}%)"
-        description = session["active_desc"]
-        return state, description
+        state = f"{close} {amt:.2f} ({chg:.2f}%)"
+        color = dsp_color(amt)
+        description = all_symbols[all_symbols["symbol"] == symbol][
+            "description"
+        ].to_string(index=False)
+        session["active_desc"] = description
+        return f"{symbol}: ", state, color, description
 
-    return None
+    return None, None, None, None
+
+
+# Callback to sunscribe search result to streaming provider
+@app.callback(
+    Output("streaming_provider", "data"), [Input("ticker_search", "value")]
+)
+def update_streaming_provider(value):
+    return value
 
 
 # Callback to return stock fundamental data on bottom Panel
 @app.callback(
     Output("stock_fundamentals", "children"),
-    [Input("ticker-search", "value"), Input("current_ticker", "children")],
+    [Input("ticker_search", "value"), Input("current_ticker", "children")],
 )
 def update_fundamentals(s_val, c_val):
     symbol = s_val or c_val
@@ -685,30 +686,27 @@ def update_fundamentals(s_val, c_val):
     if not symbol:
         raise PreventUpdate
 
-    children = []
     stock = DataProvider(symbol)
     data = stock.financials()
 
-    if data and len(data["metric"].keys()):
+    if data and len(data["metric"].keys()) > 0:
+        children = []
         for column in [valuation, trading, financials]:
-            children.append(
-                html.P(
-                    className="three-col",
-                    style={"fontSize": "1.3rem"},
-                    children=[
-                        html.P(
-                            f"{column[row]}: {data['metric'][row]}",
-                            style={"paddingBottom": 10},
-                        )
-                        for row in column.keys()
-                    ],
-                ),
+            element = html.P(
+                className="three-col",
+                style={"fontSize": "1.3rem"},
+                children=[
+                    html.P(
+                        f"{column[row]}: {data['metric'][row]}",
+                        style={"paddingBottom": 10},
+                    )
+                    for row in column.keys()
+                ],
             )
+            children.append(element)
+
     else:
-        children = [
-            html.P("no data available", className="three-col")
-            for i in range(3)
-        ]
+        children = [html.P("--", className="three-col") for i in range(3)]
 
     return children
 
@@ -716,7 +714,7 @@ def update_fundamentals(s_val, c_val):
 # Callback to return recent stock news on bottom Panel
 @app.callback(
     Output("news_panel", "children"),
-    [Input("ticker-search", "value"), Input("current_ticker", "children")],
+    [Input("ticker_search", "value"), Input("current_ticker", "children")],
 )
 def update_news(s_val, c_val):
     symbol = s_val or c_val
@@ -724,41 +722,41 @@ def update_news(s_val, c_val):
     if not symbol:
         raise PreventUpdate
 
-    children = []
     stock = DataProvider(symbol)
     news_items = stock.latest_news()
 
+    children = []
     if news_items:
-        for article in news_items:
-            # date = datetime.datetime.utcfromtimestamp(article["datetime"])
-            children.append(
-                html.Div(
-                    id=f"news_item_{article['id']}",
-                    className="row three-columns div-bottom-panel card",
-                    children=[
-                        html.Img(
-                            className="three-col float-left",
-                            src=article["image"],
-                            width="33%",
-                        ),
-                        dcc.Link(
-                            href=article["url"],
-                            target="_blank",
-                            children=[
-                                html.H5(
-                                    article["headline"],
-                                    className="float-left headline",
-                                )
-                            ],
-                        ),
-                    ],
-                )
+        for article in news_items[:10]:
+            element = html.Div(
+                id=f"news_item_{article['id']}",
+                className="row three-columns div-bottom-panel card",
+                children=[
+                    html.Img(
+                        className="three-col float-left",
+                        src=article["image"],
+                        width="33%",
+                    ),
+                    html.P(
+                        pretty_date(dt.utcfromtimestamp(article["datetime"])),
+                        className="float-right timeago",
+                    ),
+                    dcc.Link(
+                        href=article["url"],
+                        target="_blank",
+                        children=[
+                            html.H6(
+                                article["headline"],
+                                className="float-left headline",
+                            ),
+                        ],
+                    ),
+                ],
             )
+            children.append(element)
 
     return children
 
 
 if __name__ == "__main__":
-    socketio.run(
-        server, debug=False, use_reloader=True, port=5000, host="0.0.0.0"
-    )
+    app.run_server(debug=False, use_reloader=True, port=5000, host="0.0.0.0")

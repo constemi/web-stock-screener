@@ -1,25 +1,25 @@
-from .percentage import percentage
+import pandas as pd
+from .pct_change import pct_change
 
 from typing import Tuple, Any
 
 
-def parse_closed_quote(data) -> Tuple[Any, Any, str, Any, float]:
-    close = data["c"]
+def get_dist(a, b) -> float:
+    if a == b:
+        return 0
+    else:
+        return pd.Series([a, b]).diff()[1]
+
+
+def open_quote(last_close: float, curr_price: float) -> Tuple[float, float]:
+    diff = get_dist(last_close, curr_price)
+    pct = pct_change(last_close, curr_price)
+    return diff, pct
+
+
+def closed_quote(data) -> Tuple[Any, Any, float, float]:
     last_close = data["pc"]
-    diff = close - last_close
-    sign = "+" if diff > 0 else ""  # conditional positive sign
-    amt = round(diff, 2)  # numerical amount change
-    chg = percentage(diff, last_close)  # percentage change gain or loss
-
-    return close, last_close, sign, amt, chg
-
-
-def parse_open_quote(
-    current_price: float, previous_close: float
-) -> Tuple[str, Any, Any]:
-    diff = current_price - previous_close
-    sign = "+" if diff > 0 else ""
-    amt = round(diff, 2)
-    chg = percentage(diff, previous_close)
-
-    return sign, amt, chg
+    curr_price = data["c"]
+    diff = get_dist(last_close, curr_price)
+    pct = pct_change(last_close, curr_price)
+    return curr_price, last_close, diff, pct
