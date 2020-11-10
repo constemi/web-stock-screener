@@ -1039,5 +1039,11 @@ summary::-webkit-details-marker {
 .timeago {
   font-size: smaller;
   padding-top: 5px;
-  padding-right: 5px;
+  padding-right: 10px;
+}
+
+.news-item-img {
+  object-fit: cover;
+  width: 33%;
+  height: 250px;
 }

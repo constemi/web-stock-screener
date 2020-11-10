@@ -733,9 +733,8 @@ def update_news(s_val, c_val):
                 className="row three-columns div-bottom-panel card",
                 children=[
                     html.Img(
-                        className="three-col float-left",
+                        className="three-col float-left news-item-img",
                         src=article["image"],
-                        width="33%",
                     ),
                     html.P(
                         pretty_date(dt.utcfromtimestamp(article["datetime"])),
